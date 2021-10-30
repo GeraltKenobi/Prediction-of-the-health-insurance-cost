@@ -1,0 +1,455 @@
+---
+title: "Progetto Statistics for Finance and Insurance"
+author: "Gerardo Santonicola, Simone Manzolillo"
+date: "28/10/2021"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+  html_document:
+    code_folding: hide
+  '': default
+fontsize: 11pt
+urlcolor: blue
+---
+
+<div style="text-align:justify;">  
+
+\newpage
+
+# **PREDICTION OF THE HEALTH INSURANCE COST**
+
+=============================
+
+Abstract
+
+
+In this project work we use different kind of regression models to predict the health insurance cost of a sample of 1338 people. We are going to use the linear, ridge and lasso regression model, comparing the results of the prediction. 
+
+_Specs_: required libraries
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error= TRUE)
+```
+
+
+```{r message = FALSE, warning = FALSE}
+#install.packages(c("knitr", "ggplot2", "corrplot", "glmnet", "jpeg", "ggpubr"))
+library(knitr)
+library(ggplot2)
+library(corrplot)
+library(glmnet)
+library(jpeg) 
+library(ggpubr)
+```
+
+# **1.1** *Exploratory data analysis*   
+
+The dataset is available on [GitHub](https://github.com/stedy/Machine-Learning-with-R-datasets).
+It is composed by 7 variables: 
+
+*Sex*: gender of the insurance contractor.
+
+*BMI*: body mass index of the contractor.
+
+*Smoker*: dicotomic variable that indicates if the contractor is a smoker or not.
+
+*Region*: residential area in the US, with 4 observations, northeast, southeast, northwest, southwest.
+
+*Children*: number of children of the contractor covered by health insurance.
+
+*Charges*:medical costs incurred by insurance.
+
+We import the dataset in R and analyse the structure, apporting the required modifies to the variables. 
+
+```{r message= FALSE, warning= FALSE}
+setwd("/Users/geralt/Desktop/Progetto Amendola/Progetto statistics 2")
+insurance <- read.csv("insurance.csv") #import the data.
+```
+\newpage
+```{r message= FALSE, warning= FALSE, echo=FALSE}
+
+kable(insurance[1:20,],caption = "Insurance data", digits = 4, "pipe")
+#for visualize the data, we have 7 variables as anticipated.
+#Now let's see the type of variables.
+str(insurance)
+```
+
+\newpage
+
+```{r message= FALSE, warning= FALSE}
+
+summary(insurance)
+```
+
+
+We can see that 3 variables are seen from R in the wrong way, we have to modify the type of variables, changing "sex", "smoker" and "region" in factor.
+
+```{r message= FALSE, warning= FALSE}
+insurance$sex <- as.factor(insurance$sex)
+insurance$smoker <- as.factor(insurance$smoker)
+insurance$region <- as.factor(insurance$region)
+
+summary(insurance)
+```
+
+# **1.2** *Visualization of the variables*
+
+## **1.2.1** *Distribution of the response variable Charges*
+
+First of all, we study the distribution of the response variable "Charges". We use the ggplot library to represent the plots. 
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+ggplot(insurance, aes(x = charges, y = ..density..)) + 
+  geom_histogram(bins = 15, fill = "red", color = "grey", size = 0.2)  + 
+  labs(title = "Charges histogram")
+
+```
+
+The histogram reveals that the charges variable is highly right skewed. This plot tells us that there are many outliers that have a greater insurance cost. 
+
+\newpage
+
+## **1.2.2** *Smoker variable* 
+
+Now we analyse the dependent variables of the dataset, starting from the smoker variable. 
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+img.smoke <- readJPEG("liquid-smoke-06302016.jpeg") #import an image 
+#to use as wallpaper for the plot.
+
+ggplot(insurance,aes(x=smoker,fill=smoker))+  background_image(img.smoke)+
+  geom_bar(stat = 'count', alpha=0.75, colour="gray", fill="black")+
+  labs(x = 'people smoking') +
+  geom_label(stat='count',aes(label=..count..), size=7) +
+  theme_grey(base_size = 18) + scale_fill_grey()+labs(title = "Smokers barplot") + 
+  theme ( legend.position = "none")
+ #barplot that split the number of smokers from the non-smokers.
+```
+
+\newpage
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+ggplot(insurance,aes(x=smoker,y=charges))+ geom_boxplot() + 
+  scale_fill_grey() + labs(title= "Smokers boxplot") + 
+  theme ( legend.position = "none") #boxplot indicating insurance costs based 
+#on whether the policyholder is a smoker or not.
+```
+
+From the plots above we can see that, obviously, the charges for a smoker are higher than the insurance cost fort the non-smoker. In addiction we can see that smokers are less numerous than non-smokers.
+
+\newpage
+
+Now we compare the smoking males against females. 
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+ggplot(insurance,aes(x=sex,fill=smoker))+geom_bar(stat = 'count', alpha=0.75)+
+  labs(x = 'people smoking') +
+  geom_label(stat='count',aes(label=..count..), size=7) +
+  theme_grey(base_size = 18)  + labs(title= "Smokers gender barplot")+ 
+  theme ( legend.position = "none")
+```
+
+\newpage
+
+Now we can understand from the charges if a policyholder is a smoker or not with the plot below: 
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+ggplot(insurance,aes(x=charges,fill=smoker))+
+  geom_density(alpha=0.5, aes(fill=factor(smoker))) + 
+  labs(title="smoker")  + theme_grey() + scale_fill_grey() + 
+  labs(title= "density plot of smokers and non-smokers charges")
+
+```
+
+The first plot confirms that non-smokers are more numerous than smokers, but we don't see a relevant difference between genders. We will analyze the sex variable later, now the second plot shows that policyholders who have an insurance charge of more than 1800 $ are almost all smokers. 
+
+\newpage
+
+## **1.2.3** *Sex variable*
+
+We represent the gender variable to verify the significance of sex in relation to insurance costs. 
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+ggplot(insurance,aes(x=sex,fill=sex))+geom_bar(stat = 'count')+
+  labs(x = 'Sex', title= 'Gender') +
+  geom_label(stat='count',aes(label=..count..), size=7) +
+  theme_grey(base_size = 18)+ 
+  theme ( legend.position = "none") #barplot that shows the number of males 
+#and females
+```
+
+We can see the number of males and females from the barplot above.
+
+\newpage
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+ggplot(insurance, aes(x=sex,y=charges))+
+  geom_boxplot() + labs(title="Boxplot gender vs insurance costs") #boxplot
+```
+
+From the box-plot we can see that bviously the gender of the policyholder doesn't have a relevance on insurance charges. So there is no discrimination according to you are female or male.
+
+\newpage
+
+## **1.2.4** *Region*
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+ggplot(insurance,aes(x=region, fill=region))+geom_bar(stat = 'count')+
+  labs(x = 'region', title='Barplot region') +
+  geom_label(stat='count',aes(label=..count..), size=7) +
+  theme_grey(base_size = 18) + theme ( legend.position = "none") #barplot region
+```
+
+Plot above shows us the number of policyholders living in the four regions.
+
+\newpage
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+ggplot(insurance,aes(x=region,y=charges))+geom_boxplot() + 
+  labs(title="boxplot region vs charges")
+```
+
+From the box-plot above we can argue that there is no significant difference between the region where you live and the insurance charges.
+
+\newpage
+
+## **1.2.5** *Numeric variables*
+
+Now we study the correlation between the numeric variables and the response variable. We have four numeric variables. We create the correlation matrix and plot the correlations. 
+
+*Correlation plot*
+
+```{r message= FALSE, warning= FALSE, fig.align='center', fig.width=5}
+
+numericvariables <- which(sapply(insurance, is.numeric))
+#select the numeric variablesfrom the dataset
+
+insurance.numeric <- insurance[, numericvariables] #creating the matrix 
+#with only numeric variables.
+
+correlation.insurance <- cor(insurance.numeric) #creating di correlation matrix
+corrplot.mixed(correlation.insurance, tl.col="black", tl.pos = "lt")
+#plot of the correlation matrix
+
+
+```
+We found that all these numeric variables are weakly correlated with variable insurance charges. 
+
+\newpage
+
+But we have to focus on the age variable:
+```{r message= FALSE, warning= FALSE, fig.align='center'}
+ggplot(insurance, aes(x=as.factor(insurance$age), y=charges))+
+        geom_boxplot(col='blue') + labs(x='Overall Quality') +
+        scale_y_continuous(breaks= seq(0, 800000, by=100000))
+```
+
+We can see that this positive correlation between charges and ages is verified because the insurance charges increase when the person becomes more and more senior.
+
+\newpage
+
+# **2.1** *Modelling*
+
+## **2.1.1** *Ridge regression*
+ 
+We improve the linear model introducing some additional fitting procedures that give a better accuracy and model interpretability.
+In linear model, OLS estimator is decomposed in bias and variance, where bias is very low and variance is high. In ridge regression bias is higher and variance is lower. We extend the OLS with shrinkage approach. 
+Ridge regression is a shrinkage-type estimator, it's a linear regression with a shrinkage penalty term. 
+The RSS for linear model is:
+
+$$
+RSS=\sum_{i=1}^n(y_i-\beta_1-\sum_{j=2}^k\beta_jx_ij)^2
+$$
+Ridge is very similar to least squares, but we minimize a different quantity, including the shrinkage penalty term, which is the euclidean distance:
+
+$$
+RSS=\sum_{i=1}^n(y_i-\beta_1-\sum_{j=2}^k\beta_jx_ij)^2+\lambda\sum_{j=2}^k\beta_j^2
+$$
+
+In order to perform the regression estimation, we need to include the lambda. It is the tuning parameter that we need to choose. We have different solutions to choose the best tuning parameter, we define a grid of lambda values to include in the optimization function.  
+
+```{r message= FALSE, warning= FALSE}
+
+x <- model.matrix(insurance$charges~., insurance)[,-1]
+ #creating the X matrix of regressors,
+# excluding the dependent variable.
+y <- insurance$charges #dependent variable.
+lambda <- rev(10^seq(5, -2, length = 100)) #grid of lambda values
+plot(lambda)
+```
+
+Now we define training and test set to perform our analysis. 
+
+```{r message= FALSE, warning= FALSE}
+
+set.seed(489)
+train = sample(1:nrow(x), 0.7*nrow(x))
+test = (-train)
+ytest = y[test]
+```
+
+We are going to perform the difference between ridge and linear regression. We have splitted the data in training and test set (70%-30%), so we can compare the predictions of the two type of regression.
+We start from the linear model:
+
+```{r message= FALSE, warning= FALSE}
+linearmodel <- lm(insurance$charges~., data = insurance, subset = train) 
+#linear regression
+summary(linearmodel)
+```
+
+From the summary of the linear model we denote the significativity of the age, bmi and smoker variables, like seen previously in the graphical analysis of the variables. 
+Now we perform the prediction and validate the model:
+
+```{r message= FALSE, warning= FALSE}
+linear.pred <- predict(linearmodel, newdata = insurance[test,])#prediction of
+#the linear model
+MSEL <- mean((linear.pred-ytest)^2) #MSE
+MSEL
+sst <- sum((ytest - mean(ytest))^2)
+sse.l <- sum((linear.pred - ytest)^2)
+rsq <- 1 - sse.l/sst
+rsq #R-squared
+```
+
+We have calculated the MSE and than the R-squared index, that indicates a good model prediction. 
+
+\newpage
+
+Now we perform the ridge regression to compare the results.
+
+```{r message= FALSE, warning= FALSE}
+
+ridge.insur <- glmnet(x[train,], y[train], alpha = 0, lambda = lambda)
+#ridge regression
+plot(ridge.insur, xvar = "lambda", main= "Ridge regression coefficients")
+
+```
+
+The figure above represent the path of the lambda coefficients selected to perform the ridge regression. 
+Now we perform the k-fold cross validation to find the best lambda value.
+
+```{r message= FALSE, warning= FALSE}
+cv.out <- cv.glmnet(x[train,], y[train], alpha = 0) #k-fold cross validation
+bestlamridge <- cv.out$lambda.min #extracting the optimal lambda value
+plot(cv.out)
+```
+
+The figure shows the minimum value for the mean squared error as the best value of my lambda. The vertical line indicates us the optimal lambda.
+
+
+```{r message= FALSE, warning= FALSE}
+
+ridge.pred <- predict(ridge.insur, s = bestlamridge, newx = x[test,])
+MSER <- mean((ridge.pred-ytest)^2) #MSE
+
+#SST and SSE
+sst <- sum((ytest - mean(ytest))^2)
+sse <- sum((ridge.pred - ytest)^2)
+
+#R-Squared
+rsqr <- 1 - sse/sst
+rsqr
+```
+
+Performing prediction, we calculated MSE and R-squared. Comparing the results of the two models, we argue that ridge regression improve slightly the performance of the estimation.
+
+## **2.1.2** *Lasso*
+
+Lasso is an acronym for *Least Absolute Selection and Shrinkage Operator*. It includes a different penalty term from ridge regression, overcoming its limits of variable selection.
+
+$$
+RSS= \sum_{i=1}^n(y_i-\beta_1-\sum_{j=2}^k\beta_jx_ij)^2+\lambda\sum_{j=2}^k|\beta|
+$$
+It estimates beta hat that minimize the quantity:
+
+$$
+RSS+\lambda\sum_{j=2}^k|\beta|
+$$
+The difference between Lasso and Ridge is that Lasso use absolute value norm instead the euclidean norm.
+
+```{r message= FALSE, warning= FALSE}
+
+lasso.insur<- glmnet(x[train,], y[train], alpha = 1, lambda = lambda) #lasso
+plot(lasso.insur, xvar = "lambda", main= "Lasso coefficients")
+
+
+```
+
+Now we perform k-fold cross-validation to find the best lambda.
+
+```{r message= FALSE, warning= FALSE}
+
+cv.lasso <- cv.glmnet(x[train,], y[train], alpha = 1) #cross-validation for lasso
+plot(cv.lasso)
+#extracting best lambda
+bestlamlasso <- cv.lasso$lambda.min
+
+```
+
+We have to make predictions with the model. 
+
+```{r message= FALSE, warning= FALSE}
+lasso.pred <- predict(lasso.insur, s = bestlamlasso, newx = x[test,])#prediction
+MSE.L <- mean((lasso.pred-ytest)^2) #MSE
+```
+
+We calculated the MSE, smaller than the MSE of the previous models. Now we compute the R-squared index.
+
+```{r message= FALSE, warning= FALSE}
+
+#SSE for lasso prediction
+ssel <- sum((lasso.pred - ytest)^2)
+
+#R-Squared for lasso
+rsql <- 1 - ssel/sst
+rsql
+
+```
+
+\newpage
+
+Now we compare the results of the three models. 
+
+```{r message= FALSE, warning= FALSE}
+mse <- c(MSEL, MSER, MSE.L)
+r2 <- c(rsq, rsqr, rsql)
+results <- data.frame(mse, r2, row.names = c("linear", "ridge", "lasso"))
+kable(results,caption = "MSE and R-squared", digits = 4, "pipe")
+
+```
+
+As we can see from the results, MSE is lower for lasso model, also the R^2 index is higher in the same model. In addiction, we can say that the other two model are also good for the prediction, because their results aren't so different from the lasso.
+
+\newpage
+
+## **2.1.3** *Prediction with Lasso*
+
+Now we can see the first 20 predictions made by lasso model. 
+
+```{r message= FALSE, warning= FALSE}
+
+new.insurance <- model.matrix(insurance$charges~., insurance)[,-1]
+charges <- predict(lasso.insur, s = bestlamlasso, newx = new.insurance) 
+#applying our model
+data.predictions <- cbind(insurance[,-7], charges)
+colnames(data.predictions)[7] <-"Predicted charges"
+kable(data.predictions[1:20,],caption = "Predicted charges", digits = 4, "pipe")
+
+```
+
+For example, the first observation, is a 19 years old female, that is a smoker and has a bmi of 27.9, a little bit higher than the bmi that indicates the ideal weight. The insurance charges of 25536 dollars are a realistic estimation for that policyholder. 
+
+\newpage
+
+# *CONCLUSION*
+
+We have computed three regression models to predict the insurance costs. From the results we can say that lasso regression, with the absolute value norm as penalty term give us the better prediction, with a little greater R-squared index and a smaller MSE. Ridge and linear occupies the second position, while linear model has anyway lower value of MSE, ridghe has a higher value of R^squared. 
+
+
+
